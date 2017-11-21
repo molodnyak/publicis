@@ -1,0 +1,324 @@
+---
+title: "Publicis"
+author: "Evgenii Molodniak"
+date: "21 nov 2017"
+output:
+  html_document: default
+  word_document: default
+---
+
+
+Вопросы:    
+**(1)** Был ли вообще какой-то эффект от рекламной кампании. Обосновать.   
+**(2)** Даже если эффекта не было, надо показать какие сайты (при размещении рекламы на них) лучше сработали на продажи и их надо обязательно использовать в дальнейших рекламных камппаниях    
+**(2a)** Nice to have (если получится): какие цепочки (наборы, комбинации) сайтов наиболее эффективны (может быть, бывает такое, что сайт X и сайт Y по отдельности менее эффективны, чем вместе)    
+**(3)** Какие сайты хуже сработали и их можно не использовать в дальнейшем или использовать в минимальных объемах    
+**(4)** Какое общее количество контактов с рекламой наиболее эффективное для стимулирования продаж   
+
+***
+
+### Load the data   
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+library(openxlsx)
+adv <- read.xlsx("Тестовое задание - Покупки и рекламные показы.xlsx", sheet = "Контакты с рекламой", colNames=TRUE)
+sell <- read.xlsx("Тестовое задание - Покупки и рекламные показы.xlsx", sheet = "Продажи", colNames=TRUE)
+# Names
+names(adv) <- c("id", "advDate", "site", "sell")
+names(sell) <- c("id", "advSeen", "sellDate", "number", "price")
+# Formats
+adv$advDate <- as.Date(adv$advDate, origin = "1899-12-30")
+sell$sellDate <- as.Date(sell$sellDate, origin = "1899-12-30")
+```
+
+*Контакты с рекламой* **adv** :   
+"ID Человека" **id**    
+"Дата контакта с рекламой" **advDate**    
+"Реклама на каком сайте" **site**   
+"Была ли покупка" **sell**    
+    
+*Продажи* **sell** :    
+"ID Человека" **id**     
+"Тип человека" **advSeen**    
+"Дата покупки" **sellDate**   
+"Количество купленного товара" **number**   
+"Стоимость купленного товара" **price**   
+    
+
+### Examine the data before fitting models
+
+#### adv    
+В таблице **adv** `r nrow(adv)` наблюдений и `r length(unique(adv$id))` уникальных id.  
+
+##### Unique values   
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+sapply(adv, function(x) length(unique(x)))
+sapply(adv[, -1], function(x) sort(unique(x)))
+```
+
+##### Contingency table   
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+ftable(adv[, c('site', 'sell')])
+```
+
+#### sell
+В таблице **sell** `r nrow(sell)` наблюдений и `r length(unique(sell$id))` уникальных id.    
+
+##### Unique values   
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+sapply(sell, function(x) length(unique(x)))
+sapply(sell[, c('advSeen', 'number')], function(x) sort(unique(x)))
+```
+
+##### Contingency table   
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+ftable(sell[, c('advSeen', 'number')])
+```
+
+### Plot the data before fitting model --- (1)
+
+#### Просмотры рекламы по дате/Покупка
+
+```{r error=TRUE, out.width='80%', echo=FALSE, message=FALSE, warning=FALSE}
+xx <- aggregate(site ~ advDate+sell, FUN = length, data = adv)
+xx <- reshape(xx, idvar = "advDate", timevar = "sell", direction = "wide")
+xx[is.na(xx)] <- 0
+par(mar=c(5, 4, 4, 4))
+plot(xx$advDate, xx$`site.Не сделали покупку`,  
+     col="red", pch=20, lwd=2, type="l", side=2, ylab="", xlab="", yaxt="n", xaxt = "n")
+axis(2, col="red", col.axis="red", las=1)
+par(new=TRUE)
+plot(xx$advDate, xx$`site.Сделали покупку`, 
+     col="forestgreen", pch=20, lwd=2, type="l", side=4, ylab="", xlab="", yaxt="n", xaxt = "n")
+axis(4, col="forestgreen", col.axis="forestgreen", las=1)
+axis(1, at=xx$advDate, labels=format(xx$advDate, "%d.%m"))
+legend("bottomleft",legend=c("Видел рекламу/Не сделали покупку", "Видел рекламу/Сделали покупку"), bty = "n", 
+       text.col=c("red", "forestgreen"), pch=15, col=c("red", "forestgreen"))
+```
+
+#### Покупки по дате/Просмотр рекламы
+
+Пунктиром отмечен анализируемый период 04/04/2017 - 14/04/2017.
+```{r error=TRUE, out.width = '80%', fig.align = "left", echo=FALSE, message=FALSE, warning=FALSE}
+yy <- aggregate(number ~ sellDate+advSeen, FUN = sum, data = sell)
+yy <- reshape(yy, idvar = "sellDate", timevar = "advSeen", direction = "wide")
+yy[is.na(yy)] <- 0
+yy <- yy[order(yy$sellDate), ]
+plot(yy$sellDate, yy$`number.Не видел рекламу`, 
+     ylim=c(0, max(yy$`number.Не видел рекламу`)+sd(yy$`number.Не видел рекламу`)), 
+     col="red", pch=20, lwd=2, type="l", ylab="", xlab="", xaxt = "n")
+lines(yy$sellDate, yy$`number.Видел рекламу`, col="forestgreen", pch=20, lwd=2, lty=1)
+axis(1, at=yy$sellDate, labels=format(yy$sellDate, "%d.%m"), cex.axis=0.9)
+legend("topleft", legend=c("Сделали покупку/Не видел рекламу", "Сделали покупку/Видел рекламу"), bty = "n", 
+       text.col=c("red", "forestgreen"), pch=15, col=c("red", "forestgreen"))
+abline(v = c(as.Date('2017-04-04', '%Y-%m-%d'), as.Date('2017-04-14', '%Y-%m-%d')), lty=2)
+```
+
+    
+### Cleaning/editing the data and fitting model --- (1)
+
+#### adv
+Агрегируем без информации по сайтам, затем по минимальной дате - первый контакт с рекламой **minAdvDate**.   
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+x <- aggregate(site ~ id+advDate+sell, FUN = length, data = adv)
+x <- merge(aggregate(advDate ~ id+sell, FUN = min, data = x), aggregate(site ~ id+sell, FUN = sum, data = x), by = c("id", "sell"))
+names(x)[names(x) == "advDate"] <- "minAdvDate"    
+```
+
+##### sell 
+Выбираем период наблюдений 04/04/2017 - 14/04/2017 и агрегируем без одинаковых транзакций в один день.   
+Объединяем по id таблицы sell и adv с сохранением всех полей.   
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+y <- sell[sell$sellDate >= "2017-04-04" & sell$sellDate <= "2017-04-14", ]
+y <- aggregate(number ~ id+advSeen+sellDate, FUN = sum, data = y)
+xy <- merge(y, x, by = "id", all.x = T, all.y = T)
+```
+
+Удаляем тех, кто делал покупку до первого контакта с рекламой. Таких наблюдений всего `r nrow(xy[which(xy$minAdvDate > xy$sellDate), ])`.   
+
+```{r, out.width = '80%', echo=FALSE, message=FALSE, warning=FALSE}
+library(knitr)
+kable(xy[which(xy$minAdvDate > xy$sellDate), ])
+xy <- xy[-which(xy$minAdvDate > xy$sellDate), ]
+```
+
+Удаляем тех, у кого в **adv** отмечено "Сделали покупку", но чьих id не оказалось в таблице **sell**, т.е. для сделавших покупку вне периода нашей выборки. Таких наблюдений `r nrow(xy[is.na(xy$advSeen) & xy$sell == "Сделали покупку", ])`.  
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+xy <- xy[!(is.na(xy$advSeen) & xy$sell == "Сделали покупку"), ]
+```
+
+Можно еще удалить тех, у кого в таблице **sell** отмечено "Видел рекламу", но чьих id не оказалось в таблице **adv**, т.е. для них невозможно определить произошла ли покупка до или после контакта с рекламой. Таких наблюдений всего `r nrow(xy[is.na(xy$minAdvDate) & xy$advSeen == "Видел рекламу", ])`.   
+Для целей задачи **(1)**, будем считать, что все, у кого указано "Видел рекламу", видели рекламу ДО покупки.    
+
+Для удаления нескольких просмотров рекламы агрегируем по уникальным id без дат.    
+
+```{r, out.width = '80%', echo=FALSE, message=FALSE, warning=FALSE}
+library(data.table)
+xy <- setDT(xy)[,lapply(.SD, function(x) sum(x, na.rm = !all(is.na(x)))), .SDcols = 'number', 
+                by = .(id, advSeen, sell, site)]
+```
+
+### LOGIT regression "Ysell ~ Xadv"  --- (1)   
+    
+**Ysell** : **1**-Сделали покупку, **0**-Не сделали покупку    
+**Xadv** : **1**-Видел рекламу-, **0**-Не видел рекламу   
+    
+##### Frequency table   
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+xy$Ysell <- ifelse(xy$sell == "Сделали покупку" | is.na(xy$sell), 1, 0)
+xy$Xadv <- ifelse(xy$advSeen == "Видел рекламу" | is.na(xy$advSeen), 1, 0)
+kable(ftable(xy$Ysell, xy$Xadv))
+```
+
+##### Summary
+
+```{r, out.width = '70%', echo=FALSE, message=FALSE, warning=FALSE}
+model1 <- glm(Ysell ~ Xadv, data = xy, family="binomial"(link="logit"))
+summary(model1)
+```
+
+Коэффициент регрессии (`r summary(model1)$coefficients[2,1]`) оказался совершенно незначим (p-value `r summary(model1)$coefficients[2,4]`).  
+
+***
+
+### Plot the data before fitting model --- (2)
+
+#### Покупки всего/Сайты
+
+По агрегированному распределению людей, сделавших и не сделавших покупку, можно увидеть, что реклама на сайте 2 эффективнее остальных.    
+
+```{r error=TRUE, out.width = '80%', fig.align = "left", echo=FALSE, message=FALSE, warning=FALSE}
+xx <- adv[adv$id %in% unique(na.omit(xy$id[xy$advSeen == "Видел рекламу"])) | adv$sell == "Не сделали покупку", ]
+xx <- aggregate(. ~ id+sell+site, FUN = length, data = xx)
+xx <- aggregate(id ~ sell+site, FUN = length, data = xx)
+xx <- reshape(xx, idvar = "site", timevar = "sell", direction = "wide")
+xx[is.na(xx)] <- 0
+plot(xx$`id.Не сделали покупку`, xx$`id.Сделали покупку`, pch=16, lwd=6, col = "blue", 
+     ylab="Сделали покупку", xlab="Не сделали покупку", 
+     xlim=c(min(xx$`id.Не сделали покупку`)-sd(xx$`id.Не сделали покупку`), 
+            max(xx$`id.Не сделали покупку`)+sd(xx$`id.Не сделали покупку`)))
+text(xx$`id.Не сделали покупку`, xx$`id.Сделали покупку`, xx$site, cex=0.8, pos=4, col="red")
+abline(lm(xx$`id.Сделали покупку` ~ xx$`id.Не сделали покупку`))
+```
+
+### Cleaning/editing the data and fitting model --- (2)
+#### adv
+
+Убираем строки, для которых не было покупок в периоде и покупка которых после первого контакта с рекламой.  
+Агрегируем без нескольких дат для каждого id/site (убираем повторы для Покупок). 
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+yx <- adv[adv$id %in% unique(na.omit(xy$id[xy$advSeen == "Видел рекламу"])) | adv$sell == "Не сделали покупку", ]
+yx <- aggregate(. ~ id+sell+site, FUN = length, data = yx)
+yx <- reshape(yx, idvar = c("id", "sell"), timevar = "site", direction = "wide")
+yx[is.na(yx)] <- 0
+names(yx) <- c("id", "sell", "seenS1", "seenS2", "seenS3", "seenS4", "seenS5")
+```
+
+## LOGIT regression "Ysell ~ site" --- (2)
+
+**Ysell** : **1**-Сделали покупку, **0**-Не сделали покупку     
+**S1** : **1**-Просмотров рекламы на сайте 1 > 0, **0**-Нет просмотров  
+**S2** : **1**-Просмотров рекламы на сайте 2 > 0, **0**-Нет просмотров  
+**S3** : **1**-Просмотров рекламы на сайте 3 > 0, **0**-Нет просмотров  
+**S4** : **1**-Просмотров рекламы на сайте 4 > 0, **0**-Нет просмотров  
+**S5** : **1**-Просмотров рекламы на сайте 5 > 0, **0**-Нет просмотров  
+    
+##### Table (first 6 rows)   
+
+```{r, out.width = '80%', echo=FALSE, message=FALSE, warning=FALSE}
+yx$Ysell <- ifelse(yx$sell == "Сделали покупку", 1, 0)
+yx$S1 <- ifelse(yx$seenS1 > 0, 1, 0)
+yx$S2 <- ifelse(yx$seenS2 > 0, 1, 0)
+yx$S3 <- ifelse(yx$seenS3 > 0, 1, 0)
+yx$S4 <- ifelse(yx$seenS4 > 0, 1, 0)
+yx$S5 <- ifelse(yx$seenS5 > 0, 1, 0)
+kable(head(yx))
+```
+
+##### Summary
+
+```{r, out.width = '70%', echo=FALSE, message=FALSE, warning=FALSE}
+model2 <- glm(Ysell ~ S1+S2+S3+S4+S5, data = yx, family="binomial"(link="logit"))
+summary(model2)
+```
+
+Просмотр рекламы на сайте 2 положительно влияет на склонность к покупке (переменная **S2**), и гипотеза об отсутствии данной взаимосвязи отвергается с вероятностью `r paste0(round(summary(model2)$coefficients[3,4]*100, 2), '%')`.
+    
+    
+## LOGIT regression "Ysell ~ site" with interactions --- (2a)
+    
+##### Summary
+
+```{r, out.width = '70%', echo=FALSE, message=FALSE, warning=FALSE}
+model2a <- glm(Ysell ~ S1*S2*S3*S4*S5, data = yx, family="binomial"(link="logit"))
+summary(model2a)
+```
+    
+В модели со всеми взаимодействиями нет ни одного значимого фактора. Все комбинации сайтов только ухудшают качество модели, делая незначимым даже переменную 2-го сайта.    
+Можно дальше группировать взаимодействия и сравнивать различные модели.
+    
+### Cleaning/editing the data and fitting model --- (4)
+
+Берем таблицу данных для модели **(1)** и удаляем наблюдения, для которых в таблице **sell** указано "Видел рекламу", но их id нет в таблице **adv**, т.к. нет данных какое количество раз они видели рекламу. Таких наблюдений `r nrow(xy[is.na(xy$site) & xy$advSeen == "Видел рекламу", ])`.   
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+xy <- xy[!(is.na(xy$site) & xy$advSeen == "Видел рекламу"), ]
+xy$Xseen <- ifelse(is.na(xy$site), 0, xy$site)
+```
+
+### Plot the data before fitting model --- (4)
+
+#### Просмотры/Покупка
+
+Больше всего покупок приходится на пользователей с 1 просмотром рекламы.    
+
+```{r error=TRUE, fig.align = "left", echo=FALSE, message=FALSE, warning=FALSE}
+par(mfrow=c(1,2))
+hist(xy$site[xy$sell == "Сделали покупку"], xlab = "Просмотры рекламы", main = "Сделали покупку", 
+     border="white", col="forestgreen", las=1, breaks=unique(xy$Xseen))
+hist(xy$site[xy$sell == "Не сделали покупку"], xlab = "Просмотры рекламы", main = "Не сделали покупку", 
+     border="white", col="red", breaks=unique(xy$Xseen))
+```
+
+## LOGIT regression "Ysell ~ Xseen" --- (4)
+
+**Xseen** : **1**-Сделали покупку, **0**-Не сделали покупку 
+
+##### Contingency table   
+
+Заметно, что пользователи, просматривающие больше рекламы, совершают относительно меньше покупок.   
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+ftable(xy[, c("site", "sell")])
+```
+
+##### Summary
+
+```{r, out.width = '70%', echo=FALSE, message=FALSE, warning=FALSE}
+model4 <- glm(Ysell ~ Xseen, data=xy, family="binomial"(link="logit"))
+summary(model4)
+```
+
+Судя по знаку и значимости коэффициента, каждый новый просмотр рекламы потенциальным покупателем в среднем снижает вероятность покупки.    
+
+Можно доролнительно группировать количества просмотров, сохранять их как факторы и сравнивать модели.
+
+***
+Ответы:    
+**(1)** Эффекта от рекламной кампании не было. Коэффициент регрессии бинарной переменной **Xadv** (Просмотр рекламы) на бинарную переменную **Ysell** (Покупка) оказался равным 0 с очень высокой вероятностью 
+(`r paste0(round(summary(model1)$coefficients[2,4], 2)*100, '%')`).  
+Косвенно это можно было увидеть по примерно равному числу покупок среди видевших и невидевших рекламу.  
+**(2)** Наиболее (единственным) эффективным оказался **сайт 2** и его можно использовать в дальнейших рекламных кампаниях   
+**a.** Ни одна комбинация сайтов не показала значимого влияния на вероятность покупки.   
+**(3)** В модели **(2)** переменная **сайта 3** единственная показывает значимый отрицательный эффект 
+(`r summary(model2)$coefficients[4,1]`), поэтому рекламу на данном сайте можно в дальнейшем не размещать.     
+**(4)** Результат оценивания модели и гистограмма однозначно указывают, что количество контактов с рекламой наиболее эффективное для стимулирования продаж равно 1.   
